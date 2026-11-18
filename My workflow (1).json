@@ -1,0 +1,627 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        48,
+        -368
+      ],
+      "id": "c1ee4dcd-14ac-4478-ac66-dc26f51109c6",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://YOUR_SIMULATOR_URLapi/portfolio",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR_SIMULATOR_API_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        48,
+        112
+      ],
+      "id": "14420f82-2683-4ec1-a703-b5b1da72613e",
+      "name": "get portfolio"
+    },
+    {
+      "parameters": {
+        "url": "https://YOUR_SIMULATOR_URLapi/market-data/COMPANY_X/history?timeframe=1m",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        48,
+        -112
+      ],
+      "id": "b2201ed3-28e2-4408-b1e9-205e7c4a15e1",
+      "name": "get candles"
+    },
+    {
+      "parameters": {
+        "jsCode": "const candleResponse = $('get candles').first().json;\nconst portfolioResponse = $('get portfolio').first().json;\n\nconst candles = candleResponse.candles || [];\n\nif (candles.length < 26) {\n  return [{\n    json: {\n      error: true,\n      message: `Insufficient candles (${candles.length}/26).`\n    }\n  }];\n}\n\nconst closes = candles.map(c => Number(c.close));\nconst volumes = candles.map(c => Number(c.volume || 0));\nconst currentPrice = closes[closes.length - 1];\n\nfunction calcEMA(data, period) {\n  const k = 2 / (period + 1);\n  let ema = data[0];\n  for (let i = 1; i < data.length; i++) {\n    ema = data[i] * k + ema * (1 - k);\n  }\n  return ema;\n}\n\nconst ema9 = calcEMA(closes, 9);\nconst ema21 = calcEMA(closes, 21);\nconst ema12 = calcEMA(closes, 12);\nconst ema26 = calcEMA(closes, 26);\nconst macdLine = ema12 - ema26;\n\nlet gains = 0, losses = 0;\nfor (let i = closes.length - 14; i < closes.length; i++) {\n  const diff = closes[i] - closes[i - 1];\n  if (diff >= 0) gains += diff;\n  else losses -= diff;\n}\nconst rs = (gains / 14) / ((losses / 14) || 1);\nconst rsi14 = 100 - (100 / (1 + rs));\n\nconst currentVol = volumes[volumes.length - 1];\nconst avgVol = volumes.slice(-10).reduce((a, b) => a + b, 0) / 10;\n\nconst symbol = \"COMPANY_X\";\nconst positions = portfolioResponse.positions || [];\nconst activePos = positions.find(p => p.symbol === symbol && Number(p.quantity) > 0);\n\nreturn [{\n  json: {\n    error: false,\n    symbol,\n    currentPrice: Number(currentPrice.toFixed(2)),\n    ema9: Number(ema9.toFixed(2)),\n    ema21: Number(ema21.toFixed(2)),\n    macd: Number(macdLine.toFixed(4)),\n    rsi14: Number(rsi14.toFixed(2)),\n    volumeStatus: currentVol > avgVol * 1.3 ? 'HIGH' : 'NORMAL',\n    cashBalance: Number(portfolioResponse.cashBalance ?? 100000),\n    hasOpenPosition: !!activePos,\n    openQuantity: activePos ? Number(activePos.quantity) : 0,\n    avgEntryPrice: activePos ? Number(activePos.avgPrice) : 0,\n    unrealizedPnL: activePos ? Number(activePos.unrealizedPnL ?? 0) : 0\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        -96
+      ],
+      "id": "673b6788-b998-44f5-8ce2-e7c26a03b168",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "44793afb-d06b-48b5-a103-d28f7a323e59",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        432,
+        112
+      ],
+      "id": "7f610f6c-32da-47ea-9706-1246384b86d5",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Tum ek autonomous paper-trading research engine ho. Niche diye gaye simulated market data ka analysis karo aur strictly JSON decision do:\n\n- Symbol: {{ $json.symbol }}\n- Current Price: {{ $json.currentPrice }}\n- EMA 9: {{ $json.ema9 }} | EMA 21: {{ $json.ema21 }}\n- MACD: {{ $json.macd }}\n- RSI (14): {{ $json.rsi14 }}\n- Volume Status: {{ $json.volumeStatus }}\n- Available Cash: {{ $json.cashBalance }}\n- Open Position Held: {{ $json.hasOpenPosition }} (Qty: {{ $json.openQuantity }}, Avg Entry: {{ $json.avgEntryPrice }}, PnL: {{ $json.unrealizedPnL }})\n\nTrading Rules:\n1. BUY: Agar Open Position false hai, aur bullish momentum hai (EMA9 > EMA21 ya RSI < 40 se bounce), toh \"BUY\" signal do. Quantity = Math.floor((cashBalance * 0.10) / currentPrice) rakho (minimum 1). StopLoss 1.5% niche aur TakeProfit 3% upar calculate karo.\n2. SELL (Auto Sell-Off): Agar Open Position true hai, aur (RSI > 70 ya EMA9 < EMA21 crossover ya Current Price <= avgEntryPrice * 0.985 ya Current Price >= avgEntryPrice * 1.03), toh \"SELL\" signal do aur quantity mein exact openQuantity daalo.\n3. HOLD: Baaki sab cases mein \"HOLD\" do aur quantity 0 rakho.\n4. Reasoning Hinglish mein short aur data-backed likho.\n5.- Latest Market News Headlines:\n{{ $('Code in JavaScript2').first().json.latestHeadlines }}\n\nNews Rule: Upar di gayi headlines ka overall market sentiment (BULLISH / BEARISH / NEUTRAL) bhi check karo aur apni reasoning mein zaroor mention karo.",
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        624,
+        -320
+      ],
+      "id": "a88d3789-c4f3-4910-b4b8-f20204a5a136",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.5-flash",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        608,
+        -16
+      ],
+      "id": "c036dd06-b337-41a2-aea0-58d50cec6d39",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": null,
+          "name": "",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rawText = $input.first().json.text || \"\";\nconst cleanJson = rawText.replace(/```json/gi, \"\").replace(/```/g, \"\").trim();\nconst parsed = JSON.parse(cleanJson);\n\nreturn [{\n  json: {\n    action: (parsed.decision || parsed.action || \"HOLD\").toUpperCase(),\n    quantity: Number(parsed.quantity || 0),\n    stopLoss: Number(parsed.stopLoss || 0),\n    takeProfit: Number(parsed.takeProfit || 0),\n    reasoning: parsed.reasoning || \"\"\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        -112
+      ],
+      "id": "7fc25639-8b4a-4811-aea1-f201de857f8e",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "BUY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "20f86448-279b-498d-8ff1-3f3461f85d67"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 4
+                },
+                "conditions": [
+                  {
+                    "id": "41ef2c78-d4c9-4512-9e95-ba140309987e",
+                    "leftValue": "={{ $json.action }}",
+                    "rightValue": "SELL",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.5,
+      "position": [
+        1024,
+        -288
+      ],
+      "id": "90f564e7-0aab-4e9d-967b-cfd649984123",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_SIMULATOR_URLapi/trade",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR_SIMULATOR_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"symbol\": \"COMPANY_X\",\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\",\n  \"quantity\": {{ $json.quantity }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1296,
+        -240
+      ],
+      "id": "b04a8296-c445-4fd7-8dd1-fdd4df29b815",
+      "name": "Execute BUY"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://YOUR_SIMULATOR_URLapi/trade",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR_SIMULATOR_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"symbol\": \"COMPANY_X\",\n  \"side\": \"SELL\",\n  \"type\": \"MARKET\",\n  \"quantity\": {{ $('Code in JavaScript').item.json.openQuantity }}\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        992,
+        48
+      ],
+      "id": "93c4fd44-3a3d-4e88-9589-097b8e4449b4",
+      "name": "Execute SELL"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=🟢 AI AUTO-BUY EXECUTED\n\n📌 Symbol: {{ $('Code in JavaScript').first().json.symbol }}\n💰 Entry Price: ${{ $('Code in JavaScript').first().json.currentPrice }}\n📦 Quantity: {{ $('Code in JavaScript1').first().json.quantity }}\n🎯 Target: ${{ $('Code in JavaScript1').first().json.takeProfit }}\n🛑 Stop Loss: ${{ $('Code in JavaScript1').first().json.stopLoss }}\n\n🧠 AI Reason:\n{{ $('Code in JavaScript1').first().json.reasoning }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1504,
+        -224
+      ],
+      "id": "a35fa739-3aa0-4050-ad02-bb9b6f0c8988",
+      "name": "Send a text message",
+      "webhookId": "6b35250a-cfb8-4630-80a1-feb3ca0b5e09",
+      "credentials": {
+        "telegramApi": {
+          "id": "tgwhu1BcxbrBMVXj",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=🔴 AI AUTO-SELL EXECUTED\n\n📌 Symbol: {{ $('Code in JavaScript').first().json.symbol }}\n💰 Exit Price: ${{ $('Code in JavaScript').first().json.currentPrice }}\n📦 Quantity: {{ $('Code in JavaScript').first().json.openQuantity }}\n\n🧠 AI Reason:\n{{ $('Code in JavaScript1').first().json.reasoning }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1216,
+        -16
+      ],
+      "id": "406c8719-19af-499e-ab22-0be4b6c6793a",
+      "name": "Send a text message1",
+      "webhookId": "952380d3-9518-4ddc-b919-f2a1c8b5e0c0",
+      "credentials": {
+        "telegramApi": {
+          "id": "tgwhu1BcxbrBMVXj",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 15,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        1344,
+        144
+      ],
+      "id": "b9be7cee-3ed3-430c-9c32-807f16956454",
+      "name": "daily report  trigger"
+    },
+    {
+      "parameters": {
+        "url": "https://YOUR_SIMULATOR_URLapi/portfolio",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR_SIMULATOR_API_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1504,
+        48
+      ],
+      "id": "e5cebffb-1158-4c6d-96a8-f11a4b184a92",
+      "name": "get report data"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst initialCapital = 100000;\nconst cashBalance = Number(data.cashBalance ?? initialCapital);\nconst positions = data.positions || [];\nconst trades = data.trades || data.tradeHistory || [];\n\n// Open positions ki current value aur unrealized PnL calculate karo\nlet positionsValue = 0;\nlet unrealizedPnL = 0;\nlet activeHoldingsText = \"None\";\n\nif (positions.length > 0) {\n  const activeList = positions.filter(p => Number(p.quantity) > 0);\n  if (activeList.length > 0) {\n    activeHoldingsText = activeList.map(p => {\n      const qty = Number(p.quantity);\n      const avg = Number(p.avgPrice || 0);\n      const curr = Number(p.currentPrice || avg);\n      const pnl = Number(p.unrealizedPnL ?? ((curr - avg) * qty));\n      positionsValue += curr * qty;\n      unrealizedPnL += pnl;\n      return `${p.symbol}: ${qty} qty @ $${avg.toFixed(2)} (PnL: $${pnl.toFixed(2)})`;\n    }).join(\"\\n\");\n  }\n}\n\nconst totalEquity = Number(data.totalEquity ?? (cashBalance + positionsValue));\nconst netPnL = totalEquity - initialCapital;\nconst returnPct = (netPnL / initialCapital) * 100;\n\n// Win rate calculation (agar closed trades array available hai)\nlet totalTrades = trades.length;\nlet winningTrades = trades.filter(t => Number(t.realizedPnL || t.pnl || 0) > 0).length;\nlet closedTrades = trades.filter(t => t.side === 'SELL' || Number(t.realizedPnL || 0) !== 0).length;\nlet winRate = closedTrades > 0 ? ((winningTrades / closedTrades) * 100).toFixed(1) : \"N/A (Holding)\";\n\nreturn [{\n  json: {\n    date: new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }),\n    totalEquity: totalEquity.toFixed(2),\n    cashBalance: cashBalance.toFixed(2),\n    netPnL: (netPnL >= 0 ? \"+\" : \"\") + netPnL.toFixed(2),\n    returnPct: (returnPct >= 0 ? \"+\" : \"\") + returnPct.toFixed(2) + \"%\",\n    unrealizedPnL: (unrealizedPnL >= 0 ? \"+\" : \"\") + unrealizedPnL.toFixed(2),\n    totalTrades,\n    winRate,\n    activeHoldingsText,\n    statusEmoji: netPnL >= 0 ? \"📈\" : \"📉\"\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        -64
+      ],
+      "id": "582c3bdc-0640-461c-8682-828f557cc814",
+      "name": "calculate scorecard"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=📊 DAILY AI TRADING SCORECARD 📅 Date: {{ $json.date }}  {{ $json.statusEmoji }} Net PnL: ${{ $json.netPnL }} ({{ $json.returnPct }}) 💼 Total Equity: ${{ $json.totalEquity }} 💵 Cash Available: ${{ $json.cashBalance }} ⏳ Unrealized PnL: ${{ $json.unrealizedPnL }}  🏆 Win Rate: {{ $json.winRate }} 🔄 Total Trades Logged: {{ $json.totalTrades }}  📦 Active Positions: {{ $json.activeHoldingsText }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1744,
+        144
+      ],
+      "id": "808f987d-a707-4210-b914-dab1fde52613",
+      "name": "Send a text message2",
+      "webhookId": "6d9bec5d-fb3d-42f7-b118-7c903683a34b",
+      "credentials": {
+        "telegramApi": {
+          "id": "tgwhu1BcxbrBMVXj",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        208,
+        80
+      ],
+      "id": "2c7e7da9-6c10-4117-96ba-436a7696b8cb",
+      "name": "RSS Read"
+    },
+    {
+      "parameters": {
+        "jsCode": "const newsItems = $input.all().slice(0, 5);\n\nconst headlines = newsItems.map((item, idx) => {\n  return `${idx + 1}. ${item.json.title || \"No Title\"}`;\n}).join(\"\\n\");\n\nreturn [{\n  json: {\n    latestHeadlines: headlines || \"No fresh market news available.\"\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        -336
+      ],
+      "id": "0110fdd5-008e-4fc0-91b0-46c657c20d3a",
+      "name": "Code in JavaScript2"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "get candles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get candles": {
+      "main": [
+        [
+          {
+            "node": "get portfolio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get portfolio": {
+      "main": [
+        [
+          {
+            "node": "RSS Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Execute BUY",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute SELL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute BUY": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute SELL": {
+      "main": [
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "daily report  trigger": {
+      "main": [
+        [
+          {
+            "node": "get report data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get report data": {
+      "main": [
+        [
+          {
+            "node": "calculate scorecard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "calculate scorecard": {
+      "main": [
+        [
+          {
+            "node": "Send a text message2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS Read": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "f8cd50dd-4c0f-43d2-a580-1a3e091c7809",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "50babcc85c213e3d380d938e44dc7fe1e22cc494c1eefa66d5b0553df5c8af07"
+  },
+  "nodeGroups": [],
+  "id": "GL9qKBGoN2jf1ps9",
+  "tags": []
+}
